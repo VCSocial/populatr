@@ -1,0 +1,41 @@
+populatr
+*DAP Templates*
+__debug_bin
+
+# Bin
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Testing
+*.test
+
+# Emacs
+*~
+\#*\#
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# cask packages
+.cask/
+dist/
+
+# Flycheck
+flycheck_*.el
+
+# server auth directory
+/server/
+
+# projectiles files
+.projectile
+
+# directory configuration
+.dir-locals.el
+
+# VSCode
+.vscode/*
+*.code-workspace
