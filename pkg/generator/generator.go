@@ -99,8 +99,8 @@ type Record struct {
 	Data map[string]Data
 }
 
-func (r *Record) Initialize() {
-	r.Data = make(map[string]Data)
+func NewRecord() Record {
+	return Record{Data: make(map[string]Data)}
 }
 
 func (r *Record) Add(isc InfoSchemaCol) {
@@ -119,8 +119,7 @@ type Entity struct {
 func (e *Entity) GenerateRecords(iscArr []InfoSchemaCol) {
 	allRecords := []Record{}
 	for i := 0; i < limiter; i++ {
-		r := Record{}
-		r.Initialize()
+		r := NewRecord()
 		for _, isc := range iscArr {
 			r.Add(isc)
 		}
@@ -159,8 +158,10 @@ type EntityRegistry struct {
 	entities map[string]Entity
 }
 
-func (er *EntityRegistry) Initialize() {
+func NewRegistry() EntityRegistry {
+	er := EntityRegistry{}
 	er.entities = make(map[string]Entity)
+	return EntityRegistry{entities: make(map[string]Entity)}
 }
 
 func (er *EntityRegistry) Register(entity Entity) {
