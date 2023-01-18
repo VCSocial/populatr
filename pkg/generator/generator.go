@@ -150,7 +150,8 @@ func (e *Entity) GetInsertQuery() (string, [][]any, error) {
 		}
 		values = append(values, row)
 	}
-	query := fmt.Sprintf(insertQueryTemplate, e.TableName, strings.Join(params, ","), strings.Join(placeholders, ","))
+	query := fmt.Sprintf(insertQueryTemplate, e.TableName,
+		strings.Join(params, ","), strings.Join(placeholders, ","))
 	return query, values, nil
 }
 

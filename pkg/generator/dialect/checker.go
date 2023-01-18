@@ -30,7 +30,7 @@ func Connect(dbConn string, dialect string) *sql.DB {
 	return db
 }
 
-func GetDao(dialect string) info.InfoRepo {
+func GetRepo(dialect string) info.InfoRepo {
 	switch dialect {
 	case PG:
 		return PostgresqlRepo{}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vcsocial/populatr/pkg/common/logging"
 	"github.com/vcsocial/populatr/pkg/generator/info"
 )
 
@@ -28,13 +29,15 @@ type ValueData struct {
 
 func MapTable(table info.Table, visited map[string]InsertableData) {
 	_, ok := visited[table.Name]
+	logging.Global.Debug().
+		Str("table_name", table.Name).
+		Bool("already_processed", ok).
+		Msg("mapping table")
 	if ok {
-		fmt.Printf("Exiting early on %s\n", table.Name)
 		return
 	}
 	parameters := []string{}
 	placeholders := []string{}
-	//rows := make(map[int][]any)
 	rows := []map[string]any{}
 	dependencies := []*InsertableData{}
 
@@ -44,7 +47,6 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 		}
 
 		MapTable(*parent, visited)
-		//fmt.Printf("child: %s, parent: %s \n", table.Name, parent.Name)
 		dep, ok := visited[parent.Name]
 		if ok {
 			dependencies = append(dependencies, &dep)
@@ -52,7 +54,6 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 	}
 
 	for i := 0; i < defaultRows; i++ {
-		//values := []any{}
 		values := make(map[string]any)
 		j := 1
 		for _, c := range table.Columns {
@@ -61,17 +62,17 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 				placeholders = append(placeholders, fmt.Sprintf("$%d", j))
 				j++
 			}
-			//if c.ConstraintType == info.PrimaryKey && c.ColumnDefault.Valid {
-			//	continue
-			//}
 
 			var val any
 			if c.References != nil {
 				if c.References.TableName == c.TableName && c.IsNullable == "YES" {
 					val = sql.NullString{String: "", Valid: false}
 				} else {
-					fmt.Printf("Adding to %s from %s\n", c.TableName, c.References.TableName)
 					val = visited[c.References.TableName].Values[i][c.References.Name]
+					logging.Global.Debug().
+						Str("table_name", c.TableName).
+						Str("parent_table_name", c.References.TableName).
+						Msg("added referenced table")
 				}
 
 			} else {
@@ -81,10 +82,8 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 				}
 				val = v
 			}
-			//values = append(values, val)
 			values[c.Name] = val
 		}
-		//rows[i] = values
 		rows = append(rows, values)
 	}
 	data := InsertableData{
@@ -102,7 +101,6 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 func MapAllTables(tables []info.Table) map[string]InsertableData {
 	visited := make(map[string]InsertableData)
 	for _, table := range tables {
-		fmt.Printf("Target: %s\n", table.Name)
 		MapTable(table, visited)
 	}
 	for _, v := range visited {

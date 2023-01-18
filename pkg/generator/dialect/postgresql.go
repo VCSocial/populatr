@@ -7,6 +7,7 @@ import (
 
 	"github.com/lib/pq"
 	e "github.com/vcsocial/populatr/pkg/common/err"
+	"github.com/vcsocial/populatr/pkg/common/logging"
 	info "github.com/vcsocial/populatr/pkg/generator/info"
 	"github.com/vcsocial/populatr/pkg/generator/mapper"
 )
@@ -48,19 +49,6 @@ WHERE tc.table_name = $1
     AND tc2.constraint_type = 'PRIMARY KEY'
 `
 
-const findAllTableParents = `
-SELECT
-    tc2.table_name as parentTable
-FROM information_schema.table_constraints tc
-JOIN information_schema.referential_constraints rc
-	ON tc.constraint_name = rc.constraint_name
-JOIN information_schema.table_constraints tc2
-	ON rc.unique_constraint_name = tc2.constraint_name
-WHERE tc.table_name = $1
-	AND tc.constraint_type = 'FOREIGN KEY'
-    AND tc2.constraint_type = 'PRIMARY KEY'
-`
-
 const findAllColumns = `
 SELECT
 	c.column_name as column_name,
@@ -97,7 +85,7 @@ const insertQueryTemplate = "INSERT INTO %s (%s) VALUES %s"
 
 type PostgresqlRepo struct{}
 
-func (pg PostgresqlRepo) FindAllColumns(db *sql.DB) []info.Table {
+func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.Table {
 	tableRows, err := db.Query(findAllTables)
 	e.CheckPanic(err, "failed to retrieve tables")
 
@@ -105,8 +93,8 @@ func (pg PostgresqlRepo) FindAllColumns(db *sql.DB) []info.Table {
 	for tableRows.Next() {
 		var table info.Table
 		err = tableRows.Scan(&table.Name)
-		fmt.Printf(">> Found table %s\n", table.Name)
 		e.CheckPanic(err, "unable to scan table name")
+		logging.Global.Debug().Str("table_name", table.Name)
 
 		colRows, err := db.Query(findAllColumns, table.Name)
 		e.CheckPanic(err, "failed to retrieve columns of "+table.Name)
@@ -121,22 +109,14 @@ func (pg PostgresqlRepo) FindAllColumns(db *sql.DB) []info.Table {
 				&col.TableName, &col.ConstraintType,
 			)
 			table.Columns[col.Name] = col
+			logging.Global.Debug().
+				Str("table_name", table.Name).
+				Str("column_name", col.Name)
 		}
 		nameTableMap[table.Name] = table
 	}
 
 	for name, table := range nameTableMap {
-		//parentRows, err := db.Query(findAllTableParents, name)
-		//e.CheckPanic(err, "failed to query table children")
-
-		//for parentRows.Next() {
-		//	var parentName string
-		//	err = parentRows.Scan(&parentName)
-		//	e.CheckPanic(err, "unable to scan child table name")
-
-		//	parentTable := nameTableMap[parentName]
-		//	table.Parents = append(table.Parents, &parentTable)
-		//}
 
 		referencedColumns, err := db.Query(findAllReferencedTableColumns, name)
 		e.CheckPanic(err, "failed to query table parents")
@@ -155,12 +135,17 @@ func (pg PostgresqlRepo) FindAllColumns(db *sql.DB) []info.Table {
 				if okParent && okChild {
 					childCol.References = &parentCol
 					table.Columns[childColName] = childCol
+					logging.Global.Debug().
+						Str("table_name", table.Name).
+						Str("column_name", childCol.Name).
+						Str("parent_column_name", parentCol.Name)
 				}
 				nameTableMap[name] = table
 			}
 		}
 	}
 
+	// TODO refactor so this is uncessary
 	var allTables []info.Table
 	for _, table := range nameTableMap {
 		updatedParents := []*info.Table{}

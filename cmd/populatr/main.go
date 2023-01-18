@@ -51,8 +51,8 @@ func main() {
 	db := dialect.Connect(dbConn, *dbTypePtr)
 	defer db.Close()
 
-	dao := dialect.GetDao(*dbTypePtr)
-	tables := dao.FindAllColumns(db)
-	dao.InsertTestData(db, tables)
+	repo := dialect.GetRepo(*dbTypePtr)
+	tables := repo.FindAllTables(db)
+	repo.InsertTestData(db, tables)
 
 }
