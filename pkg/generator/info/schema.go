@@ -8,18 +8,25 @@ const (
 	BasicKey   = "BASIC KEY"
 )
 
-type Column struct {
+type Reference struct {
+	TableName  string
+	ColumnName string
+	Valid      bool
+}
+
+type ColumnMetadata struct {
 	Name                   string         `field:"column_name"`
-	DataType               string         `field:"data_type"`
+	UdtName                string         `field:"udt_name"`
 	CharacterMaximumLength sql.NullInt64  `field:"character_maximum_length"`
 	NumericPercision       sql.NullInt64  `field:"numeric_precision"`
 	DateTimePrecision      sql.NullString `field:"datetime_precision"`
-	UdtName                string         `field:"udt_name"`
 	IsNullable             string         `field:"is_nullable"`
-	IsGenerated            string         `field:"is_generated"`
-	IsUpdatable            string         `field:"is_updatable"`
 	ColumnDefault          sql.NullString `field:"column_default"`
 	ConstraintType         string         `field:"constraint_type"`
-	TableName              string         `field:"table_name"`
-	References             *Column
+	Reference              Reference
+}
+
+type TableMetadata struct {
+	Name    string
+	Columns map[string]ColumnMetadata
 }

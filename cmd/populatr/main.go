@@ -48,11 +48,20 @@ func main() {
 	logging.InitLogger()
 	logging.Global.Debug().Str("Connection", dbConn)
 
-	db := dialect.Connect(dbConn, *dbTypePtr)
+	db, err := dialect.Connect(dbConn, *dbTypePtr)
+	if err != nil {
+		logging.Global.Fatal().
+			Err(err).
+			Msg("could not connect to db")
+	}
 	defer db.Close()
 
-	repo := dialect.GetRepo(*dbTypePtr)
+	repo, err := dialect.GetRepo(*dbTypePtr)
+	if err != nil {
+		logging.Global.Fatal().
+			Err(err).
+			Msg("could not get repo")
+	}
 	tables := repo.FindAllTables(db)
-	repo.InsertTestData(db, tables)
-
+	repo.InsertAllTestData(db, tables)
 }

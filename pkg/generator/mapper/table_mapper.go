@@ -17,41 +17,13 @@ type InsertableData struct {
 	Placeholders string
 	Values       []map[string]any
 	Rows         int
-	Query        string
-	Dependencies []*InsertableData
-	Valid        bool
 }
 
-type ValueData struct {
-	Name  string
-	Value any
-}
-
-func MapTable(table info.Table, visited map[string]InsertableData) {
-	_, ok := visited[table.Name]
-	logging.Global.Debug().
-		Str("table_name", table.Name).
-		Bool("already_processed", ok).
-		Msg("mapping table")
-	if ok {
-		return
-	}
+func MapTable(table info.TableMetadata,
+	processed map[string]InsertableData) InsertableData {
 	parameters := []string{}
 	placeholders := []string{}
 	rows := []map[string]any{}
-	dependencies := []*InsertableData{}
-
-	for _, parent := range table.Parents {
-		if parent.Name == table.Name {
-			continue
-		}
-
-		MapTable(*parent, visited)
-		dep, ok := visited[parent.Name]
-		if ok {
-			dependencies = append(dependencies, &dep)
-		}
-	}
 
 	for i := 0; i < defaultRows; i++ {
 		values := make(map[string]any)
@@ -64,20 +36,27 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 			}
 
 			var val any
-			if c.References != nil {
-				if c.References.TableName == c.TableName && c.IsNullable == "YES" {
+			if c.Reference.Valid {
+				if c.Reference.TableName == table.Name &&
+					c.IsNullable == "YES" {
 					val = sql.NullString{String: "", Valid: false}
 				} else {
-					val = visited[c.References.TableName].Values[i][c.References.Name]
+					val = processed[c.Reference.TableName].
+						Values[i][c.Reference.ColumnName]
 					logging.Global.Debug().
-						Str("table_name", c.TableName).
-						Str("parent_table_name", c.References.TableName).
+						Str("table_name", table.Name).
+						Str("parent_table_name", c.Reference.TableName).
 						Msg("added referenced table")
 				}
 
 			} else {
 				v, err := Convert(c)
 				if err != nil {
+					logging.Global.Error().
+						Err(err).
+						Str("table_name", table.Name).
+						Str("column_name", c.Name).
+						Msg("failed to convert")
 					continue
 				}
 				val = v
@@ -86,26 +65,20 @@ func MapTable(table info.Table, visited map[string]InsertableData) {
 		}
 		rows = append(rows, values)
 	}
-	data := InsertableData{
+
+	return InsertableData{
 		TableName:    table.Name,
 		Parameters:   parameters,
 		Placeholders: "(" + strings.Join(placeholders, ",") + ")",
 		Values:       rows,
 		Rows:         defaultRows,
-		Dependencies: dependencies,
-		Valid:        true,
 	}
-	visited[table.Name] = data
 }
 
-func MapAllTables(tables []info.Table) map[string]InsertableData {
-	visited := make(map[string]InsertableData)
+func MapAllTables(tables []info.TableMetadata) map[string]InsertableData {
+	processed := make(map[string]InsertableData)
 	for _, table := range tables {
-		MapTable(table, visited)
+		processed[table.Name] = MapTable(table, processed)
 	}
-	for _, v := range visited {
-		v.Valid = false
-		visited[v.TableName] = v
-	}
-	return visited
+	return processed
 }

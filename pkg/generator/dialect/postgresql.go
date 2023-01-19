@@ -6,170 +6,116 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
-	e "github.com/vcsocial/populatr/pkg/common/err"
 	"github.com/vcsocial/populatr/pkg/common/logging"
-	info "github.com/vcsocial/populatr/pkg/generator/info"
+	"github.com/vcsocial/populatr/pkg/generator/info"
 	"github.com/vcsocial/populatr/pkg/generator/mapper"
 )
 
-const findAllTables = `
-SELECT
-	table_name
-FROM information_schema.tables
-WHERE table_schema != 'information_schema'
-	AND table_schema != 'pg_catalog'
-    AND table_type = 'BASE TABLE'
-ORDER BY table_name
-`
-
-const findAllReferencedTableColumns = `
-SELECT
-    kcu.column_name as child_column,
-    tc2.table_name as parent_table,
-    kcu2.column_name as parent_column
-FROM information_schema.table_constraints tc
-JOIN information_schema.referential_constraints rc
-	ON tc.constraint_name = rc.constraint_name
-    AND tc.constraint_schema = rc.constraint_schema
-    AND tc.constraint_catalog = rc.constraint_catalog
-JOIN information_schema.table_constraints tc2
-	ON rc.unique_constraint_name = tc2.constraint_name
-    AND rc.constraint_schema = tc2.constraint_schema
-    AND rc.constraint_catalog = tc2.constraint_catalog
-JOIN information_schema.key_column_usage kcu
-	ON tc.constraint_name = kcu.constraint_name
-    AND tc.constraint_schema = kcu.constraint_schema
-    AND tc.constraint_catalog = kcu.constraint_catalog
-JOIN information_schema.key_column_usage kcu2
-	ON tc2.constraint_name = kcu2.constraint_name
-    AND tc2.constraint_schema = kcu2.constraint_schema
-    AND tc2.constraint_catalog = kcu2.constraint_catalog
-WHERE tc.table_name = $1
-	AND tc.constraint_type = 'FOREIGN KEY'
-    AND tc2.constraint_type = 'PRIMARY KEY'
-`
-
-const findAllColumns = `
-SELECT
-	c.column_name as column_name,
-    c.data_type as data_type,
-    c.character_maximum_length as character_maximum_legnth,
-    c.numeric_precision as numeric_precision,
-	c.datetime_precision as datetime_precision,
-    c.udt_name as udt_name,
-    c.is_nullable as is_nullable,
-    c.is_generated as is_generated,
-    c.is_updatable as is_updatable,
-	c.column_default as column_default,
-	c.table_name as table_name,
-    CASE
-		WHEN kt.constraint_type IS NOT NULL
-        	THEN kt.constraint_type
-        ELSE 'BASIC KEY'
-    END as constraint_type
-FROM information_schema.columns c
-LEFT JOIN (
-  		SELECT
-  			tc.constraint_type,
-  			tc.table_name,
-  			kcu.column_name
-  		FROM information_schema.table_constraints tc
-  		JOIN information_schema.key_column_usage kcu
-  			ON tc.constraint_name = kcu.constraint_name
-	) kt ON c.column_name = kt.column_name
-		AND c.table_name = kt.table_name
-WHERE c.table_name = $1;
-`
-
-const insertQueryTemplate = "INSERT INTO %s (%s) VALUES %s"
-
 type PostgresqlRepo struct{}
 
-func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.Table {
-	tableRows, err := db.Query(findAllTables)
-	e.CheckPanic(err, "failed to retrieve tables")
-
-	nameTableMap := make(map[string]info.Table)
-	for tableRows.Next() {
-		var table info.Table
-		err = tableRows.Scan(&table.Name)
-		e.CheckPanic(err, "unable to scan table name")
-		logging.Global.Debug().Str("table_name", table.Name)
-
-		colRows, err := db.Query(findAllColumns, table.Name)
-		e.CheckPanic(err, "failed to retrieve columns of "+table.Name)
-
-		table.Columns = make(map[string]info.Column)
-		for colRows.Next() {
-			var col info.Column
-			err = colRows.Scan(&col.Name, &col.DataType,
-				&col.CharacterMaximumLength, &col.NumericPercision,
-				&col.DateTimePrecision, &col.UdtName, &col.IsNullable,
-				&col.IsGenerated, &col.IsUpdatable, &col.ColumnDefault,
-				&col.TableName, &col.ConstraintType,
-			)
-			table.Columns[col.Name] = col
-			logging.Global.Debug().
-				Str("table_name", table.Name).
-				Str("column_name", col.Name)
-		}
-		nameTableMap[table.Name] = table
+func (pg PostgresqlRepo) FindAllColumns(db *sql.DB, tblName string,
+	fkColName sql.NullString) map[string]info.ColumnMetadata {
+	query, err := GetColumnsQuery(PG)
+	if err != nil {
+		logging.Global.Error().
+			Err(err).
+			Msg("could not get column query for postgresql")
 	}
 
-	for name, table := range nameTableMap {
-
-		referencedColumns, err := db.Query(findAllReferencedTableColumns, name)
-		e.CheckPanic(err, "failed to query table parents")
-
-		for referencedColumns.Next() {
-			var childColName string
-			var parentTblName string
-			var parentColName string
-			err = referencedColumns.Scan(&childColName, &parentTblName, &parentColName)
-			e.CheckPanic(err, "unable to scan referenced columns")
-			parent, ok := nameTableMap[parentTblName]
-			if ok {
-				table.Parents = append(table.Parents, &parent)
-				parentCol, okParent := parent.Columns[parentColName]
-				childCol, okChild := table.Columns[childColName]
-				if okParent && okChild {
-					childCol.References = &parentCol
-					table.Columns[childColName] = childCol
-					logging.Global.Debug().
-						Str("table_name", table.Name).
-						Str("column_name", childCol.Name).
-						Str("parent_column_name", parentCol.Name)
-				}
-				nameTableMap[name] = table
-			}
-		}
+	colRows, err := db.Query(query, tblName)
+	if err != nil {
+		logging.Global.Error().
+			Err(err).
+			Str("table_name", tblName).
+			Msg("could not retrieve columns for table")
 	}
 
-	// TODO refactor so this is uncessary
-	var allTables []info.Table
-	for _, table := range nameTableMap {
-		updatedParents := []*info.Table{}
-		for _, parent := range table.Parents {
-			updated, ok := nameTableMap[parent.Name]
-			if ok {
-				updatedParents = append(updatedParents, &updated)
-			}
-		}
-		table.Parents = updatedParents
-		allTables = append(allTables, table)
-	}
+	cols := make(map[string]info.ColumnMetadata)
+	for colRows.Next() {
+		var col info.ColumnMetadata
+		err = colRows.Scan(&col.Name, &col.UdtName,
+			&col.CharacterMaximumLength, &col.NumericPercision,
+			&col.DateTimePrecision, &col.IsNullable,
+			&col.ColumnDefault, &col.ConstraintType)
 
-	return allTables
+		if err != nil {
+			logging.Global.Error().
+				Err(err).
+				Str("table_name", tblName).
+				Msg("could not map column")
+		}
+		cols[col.Name] = col
+	}
+	return cols
 }
 
-func InsertData(db *sql.DB, d mapper.InsertableData, visited map[string]mapper.InsertableData) {
-	if visited[d.TableName].Valid {
-		return
+func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.TableMetadata {
+	query, err := GetTableRelationQuery(PG)
+	if err != nil {
+		logging.Global.Error().
+			Err(err).
+			Msg("could not get column query for postgresql")
 	}
 
-	for _, dep := range d.Dependencies {
-		InsertData(db, *dep, visited)
+	tableRows, err := db.Query(query)
+	if err != nil {
+		logging.Global.Err(err).
+			Msg("failed to retrieve table associations")
 	}
+
+	graph := newTableGraph()
+	for tableRows.Next() {
+		var parentTblName sql.NullString
+		var parentColName sql.NullString
+		var childTblName sql.NullString
+		var childColName sql.NullString
+		err = tableRows.Scan(&parentTblName, &parentColName, &childTblName,
+			&childColName)
+		if err != nil {
+			logging.Global.Error().
+				Err(err).
+				Msg("could not map references")
+		}
+
+		if !childTblName.Valid && !parentTblName.Valid {
+			logging.Global.Error().
+				Msg("could not extract parent or child table")
+			continue
+		}
+
+		if !graph.Exists(childTblName.String) {
+			childCols := pg.FindAllColumns(db, childTblName.String,
+				childColName)
+			graph.AddNode(childTblName.String, childCols)
+		}
+
+		if parentTblName.Valid {
+			if !graph.Exists(parentTblName.String) {
+				parentCols := pg.FindAllColumns(db, parentTblName.String,
+					sql.NullString{String: "", Valid: false})
+				graph.AddNode(parentTblName.String, parentCols)
+			}
+			if parentTblName.String != childTblName.String {
+				graph.AddEdge(parentTblName.String, childTblName.String)
+			}
+		}
+
+		if parentTblName.Valid && parentColName.Valid {
+			ref := info.Reference{
+				TableName:  parentTblName.String,
+				ColumnName: parentColName.String,
+				Valid:      true,
+			}
+			graph.AddRef(childTblName.String, childColName.String, ref)
+		}
+	}
+	return graph.topologicalSort()
+}
+
+func (pg PostgresqlRepo) insertTestData(db *sql.DB, d mapper.InsertableData) {
+	logging.Global.Debug().
+		Str("table_name", d.TableName).
+		Msg("processing test data")
 
 	escapedParams := []string{}
 	for _, p := range d.Parameters {
@@ -177,7 +123,8 @@ func InsertData(db *sql.DB, d mapper.InsertableData, visited map[string]mapper.I
 	}
 
 	paramsStr := strings.Join(escapedParams, ",")
-	d.Query = fmt.Sprintf(insertQueryTemplate, pq.QuoteIdentifier(d.TableName), paramsStr, d.Placeholders)
+	query := fmt.Sprintf(insertQueryTemplate, pq.QuoteIdentifier(d.TableName),
+		paramsStr, d.Placeholders)
 
 	// TODO switch to bulk insert
 	for _, colMap := range d.Values {
@@ -188,22 +135,31 @@ func InsertData(db *sql.DB, d mapper.InsertableData, visited map[string]mapper.I
 				vals = append(vals, v)
 			}
 		}
-		stmt, err := db.Prepare(d.Query)
-		e.CheckPanic(err, "failed to prepare insert statement")
+		stmt, err := db.Prepare(query)
+		if err != nil {
+			logging.Global.Error().
+				Err(err).
+				Str("table_name", d.TableName).
+				Msg("failed to prepare insert statement")
+		}
 
 		_, err = stmt.Exec(vals...)
 		if err != nil {
-			fmt.Println(d.Query)
+			logging.Global.Error().
+				Err(err).
+				Str("table_name", d.TableName).
+				Msg("failed to execute insert statement")
+			fmt.Println(query)
 		}
-		e.CheckPanic(err, "failed to execute insert statement on "+d.TableName)
 	}
-	d.Valid = true
-	visited[d.TableName] = d
 }
 
-func (pg PostgresqlRepo) InsertTestData(db *sql.DB, tables []info.Table) {
+func (pg PostgresqlRepo) InsertAllTestData(db *sql.DB,
+	tables []info.TableMetadata) {
 	data := mapper.MapAllTables(tables)
-	for _, d := range data {
-		InsertData(db, d, data)
+	for _, table := range tables {
+		if d, ok := data[table.Name]; ok {
+			pg.insertTestData(db, d)
+		}
 	}
 }

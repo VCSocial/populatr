@@ -11,12 +11,12 @@ import (
 	"github.com/vcsocial/populatr/pkg/generator/info"
 )
 
-func toVarchar(c info.Column, length int64) sql.NullString {
+func toVarchar(c info.ColumnMetadata, length int64) sql.NullString {
 	size := uint(gofakeit.Number(1, int(length)))
 	return sql.NullString{String: gofakeit.LetterN(size), Valid: true}
 }
 
-func toBpchar(c info.Column, length int64) sql.NullString {
+func toBpchar(c info.ColumnMetadata, length int64) sql.NullString {
 	sqlStr := toVarchar(c, length)
 	sqlStrLen := len(sqlStr.String)
 	if sqlStrLen < int(length) {
@@ -42,16 +42,17 @@ func toBool() sql.NullBool {
 	return sql.NullBool{Bool: gofakeit.Bool(), Valid: true}
 }
 
+// TODO always overflows
 func toIntX(intSize uint8) sql.NullInt64 {
 	switch intSize {
 	case 2:
-		return sql.NullInt64{Int64: int64(gofakeit.Int16()), Valid: true}
+		return sql.NullInt64{Int64: int64(gofakeit.Uint16()), Valid: true}
 	case 4:
-		return sql.NullInt64{Int64: int64(gofakeit.Int32()), Valid: true}
+		return sql.NullInt64{Int64: int64(gofakeit.Uint16()), Valid: true}
 	case 8:
-		return sql.NullInt64{Int64: gofakeit.Int64(), Valid: true}
+		return sql.NullInt64{Int64: int64(gofakeit.Uint16()), Valid: true}
 	default:
-		return sql.NullInt64{Int64: int64(gofakeit.Int8()), Valid: true}
+		return sql.NullInt64{Int64: int64(gofakeit.Uint8()), Valid: true}
 	}
 }
 
@@ -76,7 +77,7 @@ func toBytes() sql.NullString {
 	}
 }
 
-func Convert(c info.Column) (any, error) {
+func Convert(c info.ColumnMetadata) (any, error) {
 	var val any
 
 	switch c.UdtName {

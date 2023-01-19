@@ -1,8 +1,12 @@
 package info
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 type InfoRepo interface {
-	FindAllTables(db *sql.DB) []Table
-	InsertTestData(db *sql.DB, tables []Table)
+	FindAllColumns(db *sql.DB, tblName string,
+		fkColName sql.NullString) map[string]ColumnMetadata
+	FindAllTables(db *sql.DB) []TableMetadata
+	InsertAllTestData(db *sql.DB, tables []TableMetadata)
 }
