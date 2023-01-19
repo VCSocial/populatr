@@ -83,13 +83,6 @@ func (g *tableGraph) topologicalSort() []info.TableMetadata {
 		}
 	}
 
-	//for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
-	//	sorted[i], sorted[j] = sorted[j], sorted[i]
-	//	logging.Global.Debug().
-	//		Int("position", i).
-	//		Str("table_name", sorted[i].id)
-	//}
-
 	tables := []info.TableMetadata{}
 	for i := len(sorted) - 1; i >= 0; i-- {
 		tables = append(tables, sorted[i].toTableMetadata())
