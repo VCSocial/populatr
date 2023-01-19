@@ -27,3 +27,7 @@ Usage of populatr:
         Username
   -v    Enable verbose output
 ```
+
+## Demo
+
+![Demo Recording](demo.gif)
