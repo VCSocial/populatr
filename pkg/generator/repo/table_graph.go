@@ -1,4 +1,4 @@
-package dialect
+package repo
 
 import (
 	"github.com/vcsocial/populatr/pkg/common/logging"
@@ -26,16 +26,12 @@ func newTableGraph() *tableGraph {
 	return &tableGraph{nodes: make(map[string]*tableNode)}
 }
 
-func (g *tableGraph) Exists(id string) bool {
+func (g *tableGraph) exists(id string) bool {
 	_, ok := g.nodes[id]
 	return ok
 }
 
-func (g *tableGraph) AddNode(id string, columns map[string]info.ColumnMetadata) {
-	if g.Exists(id) {
-		return
-	}
-
+func (g *tableGraph) addNode(id string, columns map[string]info.ColumnMetadata) {
 	g.nodes[id] = &tableNode{
 		id:      id,
 		columns: columns,
@@ -43,11 +39,11 @@ func (g *tableGraph) AddNode(id string, columns map[string]info.ColumnMetadata) 
 	}
 }
 
-func (g *tableGraph) AddEdge(orgnId string, destId string) {
+func (g *tableGraph) addEdge(orgnId string, destId string) {
 	g.nodes[orgnId].edges[destId] = true
 }
 
-func (g *tableGraph) AddRef(id string, colName string, ref info.Reference) {
+func (g *tableGraph) addRef(id string, colName string, ref info.Reference) {
 	if c, ok := g.nodes[id].columns[colName]; ok {
 		c.Reference = ref
 		g.nodes[id].columns[colName] = c

@@ -2,12 +2,13 @@ package main
 
 import (
 	"flag"
-	"fmt"
 
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
-	logging "github.com/vcsocial/populatr/pkg/common/logging"
+	"github.com/vcsocial/populatr/pkg/common/logging"
 	"github.com/vcsocial/populatr/pkg/generator/dialect"
+	"github.com/vcsocial/populatr/pkg/generator/repo"
 )
 
 var (
@@ -34,21 +35,15 @@ func init() {
 
 func main() {
 	flag.Parse()
-
-	dbConn := "host=%s port=%d user=%s password=%s dbname=%s"
-	if !*sslModePtr {
-		dbConn += " sslmode=disable"
-	}
-
-	dbConn = fmt.Sprintf(dbConn, *hostPtr, *portPtr, *userPtr, *passPtr, *dbPtr)
+	dialect.Opts.Configure(*dbTypePtr, *userPtr, *passPtr, *hostPtr, *portPtr,
+		*dbPtr, *sslModePtr)
 
 	if *verbosePtr {
 		logging.Opts.Level = zerolog.DebugLevel
 	}
 	logging.InitLogger()
-	logging.Global.Debug().Str("Connection", dbConn)
 
-	db, err := dialect.Connect(dbConn, *dbTypePtr)
+	db, err := dialect.Connect(*dbTypePtr)
 	if err != nil {
 		logging.Global.Fatal().
 			Err(err).
@@ -56,12 +51,6 @@ func main() {
 	}
 	defer db.Close()
 
-	repo, err := dialect.GetRepo(*dbTypePtr)
-	if err != nil {
-		logging.Global.Fatal().
-			Err(err).
-			Msg("could not get repo")
-	}
 	tables := repo.FindAllTables(db)
 	repo.InsertAllTestData(db, tables)
 }

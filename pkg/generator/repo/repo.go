@@ -1,21 +1,19 @@
-package dialect
+package repo
 
 import (
 	"database/sql"
 	"fmt"
 	"strings"
 
-	"github.com/lib/pq"
 	"github.com/vcsocial/populatr/pkg/common/logging"
+	"github.com/vcsocial/populatr/pkg/generator/dialect"
 	"github.com/vcsocial/populatr/pkg/generator/info"
 	"github.com/vcsocial/populatr/pkg/generator/mapper"
 )
 
-type PostgresqlRepo struct{}
-
-func (pg PostgresqlRepo) FindAllColumns(db *sql.DB, tblName string,
+func FindAllColumns(db *sql.DB, tblName string,
 	fkColName sql.NullString) map[string]info.ColumnMetadata {
-	query, err := GetColumnsQuery(PG)
+	query, err := dialect.GetColumnsQuery()
 	if err != nil {
 		logging.Global.Error().
 			Err(err).
@@ -49,8 +47,8 @@ func (pg PostgresqlRepo) FindAllColumns(db *sql.DB, tblName string,
 	return cols
 }
 
-func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.TableMetadata {
-	query, err := GetTableRelationQuery(PG)
+func FindAllTables(db *sql.DB) []info.TableMetadata {
+	query, err := dialect.GetTableRelationQuery()
 	if err != nil {
 		logging.Global.Error().
 			Err(err).
@@ -83,20 +81,20 @@ func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.TableMetadata {
 			continue
 		}
 
-		if !graph.Exists(childTblName.String) {
-			childCols := pg.FindAllColumns(db, childTblName.String,
+		if !graph.exists(childTblName.String) {
+			childCols := FindAllColumns(db, childTblName.String,
 				childColName)
-			graph.AddNode(childTblName.String, childCols)
+			graph.addNode(childTblName.String, childCols)
 		}
 
 		if parentTblName.Valid {
-			if !graph.Exists(parentTblName.String) {
-				parentCols := pg.FindAllColumns(db, parentTblName.String,
+			if !graph.exists(parentTblName.String) {
+				parentCols := FindAllColumns(db, parentTblName.String,
 					sql.NullString{String: "", Valid: false})
-				graph.AddNode(parentTblName.String, parentCols)
+				graph.addNode(parentTblName.String, parentCols)
 			}
 			if parentTblName.String != childTblName.String {
-				graph.AddEdge(parentTblName.String, childTblName.String)
+				graph.addEdge(parentTblName.String, childTblName.String)
 			}
 		}
 
@@ -106,24 +104,30 @@ func (pg PostgresqlRepo) FindAllTables(db *sql.DB) []info.TableMetadata {
 				ColumnName: parentColName.String,
 				Valid:      true,
 			}
-			graph.AddRef(childTblName.String, childColName.String, ref)
+			graph.addRef(childTblName.String, childColName.String, ref)
 		}
 	}
 	return graph.topologicalSort()
 }
 
-func (pg PostgresqlRepo) insertTestData(db *sql.DB, d mapper.InsertableData) {
+func insertTestData(db *sql.DB, d mapper.InsertableData) {
 	logging.Global.Debug().
 		Str("table_name", d.TableName).
 		Msg("processing test data")
 
 	escapedParams := []string{}
 	for _, p := range d.Parameters {
-		escapedParams = append(escapedParams, pq.QuoteIdentifier(p))
+		escapedParams = append(escapedParams, dialect.QuoteIdentifer(p))
 	}
 
 	paramsStr := strings.Join(escapedParams, ",")
-	query := fmt.Sprintf(insertQueryTemplate, pq.QuoteIdentifier(d.TableName),
+	template, err := dialect.GetInsertQueryTemplate()
+	if err != nil {
+		logging.Global.Error().
+			Err(err).
+			Msg("could not get insert query template")
+	}
+	query := fmt.Sprintf(template, dialect.QuoteIdentifer(d.TableName),
 		paramsStr, d.Placeholders)
 
 	// TODO switch to bulk insert
@@ -154,12 +158,11 @@ func (pg PostgresqlRepo) insertTestData(db *sql.DB, d mapper.InsertableData) {
 	}
 }
 
-func (pg PostgresqlRepo) InsertAllTestData(db *sql.DB,
-	tables []info.TableMetadata) {
+func InsertAllTestData(db *sql.DB, tables []info.TableMetadata) {
 	data := mapper.MapAllTables(tables)
 	for _, table := range tables {
 		if d, ok := data[table.Name]; ok {
-			pg.insertTestData(db, d)
+			insertTestData(db, d)
 		}
 	}
 }

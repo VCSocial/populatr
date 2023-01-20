@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vcsocial/populatr/pkg/generator/info"
+	"github.com/lib/pq"
+	"github.com/vcsocial/populatr/pkg/common/logging"
 )
 
 const (
@@ -13,48 +14,125 @@ const (
 	MYSQL = "mysql"
 )
 
-func Connect(dbConn string, dialect string) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
+type databaseOptions struct {
+	dialect  string
+	username string
+	password string
+	host     string
+	port     int
+	db       string
+	useSsl   bool
+}
+
+func (o *databaseOptions) Configure(dialect string, username string,
+	password string, host string, port int, db string, useSsl bool) {
+	o.dialect = dialect
+	o.username = username
+	o.password = password
+	o.host = host
+	o.port = port
+	o.db = db
+	o.useSsl = useSsl
+}
+
+type connection struct {
+	driver     string
+	datasource string
+}
+
+var Opts databaseOptions = databaseOptions{
+	useSsl: true,
+}
+
+func getConnection(dialect string) (connection, error) {
+	Opts.dialect = dialect
+
+	driver := ""
+	datasource := ""
+	var err error = nil
+
 	switch dialect {
 	case PG:
-		db, err = sql.Open("postgres", dbConn)
+		driver = PG
+		datasource = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+			Opts.host, Opts.port, Opts.username, Opts.password, Opts.db)
+		if !Opts.useSsl {
+			datasource += " sslmode=disable"
+		}
 	case MYSQL:
-		db, err = sql.Open("mysql", dbConn) // TODO check this
+		driver = MYSQL
+		datasource = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", Opts.username, Opts.password,
+			Opts.host, Opts.port, Opts.db)
+		// TODO check ssl here
 	default:
-		err = errors.New("unsupported dialect specified")
+		driver = "undefined"
+		datasource = "undefined"
+		err = errors.New("unsupported dialect selected")
 	}
+	logging.Global.Debug().
+		Str("driver", driver).
+		Str("datasource", datasource).
+		Msg("configuring connection")
+
+	return connection{driver: driver, datasource: datasource}, err
+}
+
+func Connect(dialect string) (*sql.DB, error) {
+	con, err := getConnection(dialect)
+	if err != nil {
+		logging.Global.Error().
+			Err(err).
+			Str("dialect", dialect).
+			Msg("could not determine datasource")
+	}
+	db, err := sql.Open(con.driver, con.datasource)
 	return db, err
 }
 
-func GetRepo(dialect string) (info.InfoRepo, error) {
-	switch dialect {
-	case PG:
-		return PostgresqlRepo{}, nil
-	default:
-		errMsg := fmt.Sprintf("no repository for dialect %s", dialect)
-		return nil, errors.New(errMsg)
-	}
-}
-
-func GetTableRelationQuery(dialect string) (string, error) {
-	switch dialect {
+func GetTableRelationQuery() (string, error) {
+	switch Opts.dialect {
 	case PG:
 		return findAllTableRelations, nil
+	case MYSQL:
+		return findAllColumnsOfTable, nil
 	default:
 		errMsg := fmt.Sprintf("no query for table relations, dialect %s",
-			dialect)
+			Opts.dialect)
 		return "", errors.New(errMsg)
 	}
 }
 
-func GetColumnsQuery(dialect string) (string, error) {
-	switch dialect {
+func GetColumnsQuery() (string, error) {
+	switch Opts.dialect {
 	case PG:
+		return findAllColumnsOfTable, nil
+	case MYSQL:
 		return findAllColumnsOfTable, nil
 	default:
 		errMsg := fmt.Sprintf("no query for getting table columns, dialect %s",
-			dialect)
+			Opts.dialect)
 		return "", errors.New(errMsg)
+	}
+}
+
+func GetInsertQueryTemplate() (string, error) {
+	switch Opts.dialect {
+	case PG:
+		return insertQueryTemplate, nil
+	case MYSQL:
+		return insertQueryTemplate, nil
+	default:
+		errMsg := fmt.Sprintf("no query for getting table columns, dialect %s",
+			Opts.dialect)
+		return "", errors.New(errMsg)
+	}
+}
+
+func QuoteIdentifer(identifier string) string {
+	switch Opts.dialect {
+	case PG:
+		return pq.QuoteIdentifier(identifier)
+	default:
+		return identifier
 	}
 }
