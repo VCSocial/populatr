@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  postgres:
+    image: "postgres:alpine"
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=puser
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=pop
+  mysql:
+    image: "mysql:latest"
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_USER=puser
+      - MYSQL_PASSWORD=password
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=pop
