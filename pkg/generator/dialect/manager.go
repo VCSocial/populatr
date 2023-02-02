@@ -92,9 +92,9 @@ func Connect(dialect string) (*sql.DB, error) {
 func GetTableRelationQuery() (string, error) {
 	switch Opts.dialect {
 	case PG:
-		return findAllTableRelations, nil
+		return findAllTableRelationsPg, nil
 	case MYSQL:
-		return findAllColumnsOfTable, nil
+		return findAllTableRelationsMySql, nil
 	default:
 		errMsg := fmt.Sprintf("no query for table relations, dialect %s",
 			Opts.dialect)
@@ -105,9 +105,9 @@ func GetTableRelationQuery() (string, error) {
 func GetColumnsQuery() (string, error) {
 	switch Opts.dialect {
 	case PG:
-		return findAllColumnsOfTable, nil
+		return fmt.Sprintf(findAllColumnsOfTable, parameterPg), nil
 	case MYSQL:
-		return findAllColumnsOfTable, nil
+		return fmt.Sprintf(findAllColumnsOfTable, parameterMysql), nil
 	default:
 		errMsg := fmt.Sprintf("no query for getting table columns, dialect %s",
 			Opts.dialect)
@@ -134,5 +134,16 @@ func QuoteIdentifer(identifier string) string {
 		return pq.QuoteIdentifier(identifier)
 	default:
 		return identifier
+	}
+}
+
+func GetPositionalParameter(position int) string {
+	switch Opts.dialect {
+	case PG:
+		return fmt.Sprintf("$%d", position)
+	case MYSQL:
+		return "?"
+	default:
+		panic("Unhandled dialect " + Opts.dialect + " unknown parameter")
 	}
 }

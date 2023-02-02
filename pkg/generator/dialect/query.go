@@ -1,17 +1,22 @@
 package dialect
 
+const (
+	parameterPg    = "$1"
+	parameterMysql = "?"
+)
+
 const findAllColumnsOfTable = `
 SELECT
 	c.column_name as column_name,
-    c.udt_name as udt_name,
+    c.data_type data_type,
     c.character_maximum_length as character_maximum_legnth,
     c.numeric_precision as numeric_precision,
+    c.numeric_scale as numeric_scale,
 	c.datetime_precision as datetime_precision,
     c.is_nullable as is_nullable,
-	c.column_default as column_default,
     CASE
 		WHEN kt.constraint_type IS NOT NULL
-        	THEN kt.constraint_type
+        THEN kt.constraint_type
         ELSE 'BASIC KEY'
     END as constraint_type
 FROM information_schema.columns c
@@ -25,10 +30,10 @@ LEFT JOIN (
   			ON tc.constraint_name = kcu.constraint_name
 	) kt ON c.column_name = kt.column_name
 		AND c.table_name = kt.table_name
-WHERE c.table_name = $1;
+WHERE c.table_name = %s;
 `
 
-const findAllTableRelations = `
+const findAllTableRelationsPg = `
 SELECT
     tc2.table_name as parent_table,
     kcu2.column_name as parent_column,
@@ -51,7 +56,26 @@ LEFT JOIN information_schema.key_column_usage kcu2
 	ON tc2.constraint_name = kcu2.constraint_name
     AND tc2.constraint_schema = kcu2.constraint_schema
     AND tc2.constraint_catalog = kcu2.constraint_catalog
+WHERE tc.table_schema NOT IN ('information_schema', 'pg_catalog')
 ORDER BY parent_table
+`
+
+const findAllTableRelationsMySql = `
+SELECT
+  rc.referenced_table_name as parent_table,
+  kcu.referenced_column_name as parent_column,
+  IFNULL(rc.table_name, t.table_name) as child_table,
+  kcu.column_name as child_column
+FROM information_schema.tables t
+LEFT JOIN information_schema.referential_constraints rc
+    ON rc.table_name = t.table_name
+    AND rc.constraint_schema = t.table_schema
+    AND rc.constraint_catalog = t.table_catalog
+LEFT JOIN information_schema.key_column_usage kcu
+    ON rc.constraint_name = kcu.constraint_name
+    AND rc.constraint_schema = kcu.constraint_schema
+    AND rc.constraint_catalog = kcu.constraint_catalog
+WHERE t.table_schema NOT IN ('information_schema', 'performance_schema')
 `
 
 const insertQueryTemplate = "INSERT INTO %s (%s) VALUES %s"

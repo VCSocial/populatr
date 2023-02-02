@@ -2,10 +2,10 @@ package mapper
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 
 	"github.com/vcsocial/populatr/pkg/common/logging"
+	"github.com/vcsocial/populatr/pkg/generator/dialect"
 	"github.com/vcsocial/populatr/pkg/generator/info"
 )
 
@@ -31,24 +31,46 @@ func MapTable(table info.TableMetadata,
 		for _, c := range table.Columns {
 			if i == 0 {
 				parameters = append(parameters, c.Name)
-				placeholders = append(placeholders, fmt.Sprintf("$%d", j))
+				placeholders = append(placeholders,
+					dialect.GetPositionalParameter(j))
 				j++
 			}
 
 			var val any
-			if c.Reference.Valid {
-				if c.Reference.TableName == table.Name &&
-					c.IsNullable == "YES" {
-					val = sql.NullString{String: "", Valid: false}
-				} else {
-					val = processed[c.Reference.TableName].
-						Values[i][c.Reference.ColumnName]
-					logging.Global.Debug().
+			isNullableSelfRef := c.Reference.Valid &&
+				c.Reference.TableName == table.Name &&
+				c.IsNullable == "YES"
+			if isNullableSelfRef {
+				val = sql.NullString{String: "", Valid: false}
+			} else if c.Reference.Valid {
+				processedTable, ok := processed[c.Reference.TableName]
+				if !ok || i >= len(processedTable.Values) {
+					logging.Global.Error().
 						Str("table_name", table.Name).
+						Str("column_name", c.Name).
 						Str("parent_table_name", c.Reference.TableName).
-						Msg("added referenced table")
+						Str("parent_column_name", c.Reference.ColumnName).
+						Msg("failed find foreign key reference's table")
+					continue
 				}
 
+				processedColumn, ok := processedTable.
+					Values[i][c.Reference.ColumnName]
+				if !ok {
+					logging.Global.Error().
+						Str("table_name", table.Name).
+						Str("column_name", c.Name).
+						Str("parent_table_name", c.Reference.TableName).
+						Str("parent_column_name", c.Reference.ColumnName).
+						Msg("failed find foreign key reference's column")
+					continue
+				}
+
+				val = processedColumn
+				logging.Global.Debug().
+					Str("table_name", table.Name).
+					Str("parent_table_name", c.Reference.TableName).
+					Msg("added referenced table")
 			} else {
 				v, err := Convert(c)
 				if err != nil {

@@ -11,8 +11,7 @@ import (
 	"github.com/vcsocial/populatr/pkg/generator/mapper"
 )
 
-func FindAllColumns(db *sql.DB, tblName string,
-	fkColName sql.NullString) map[string]info.ColumnMetadata {
+func FindAllColumns(db *sql.DB, tblName string) map[string]info.ColumnMetadata {
 	query, err := dialect.GetColumnsQuery()
 	if err != nil {
 		logging.Global.Error().
@@ -31,10 +30,10 @@ func FindAllColumns(db *sql.DB, tblName string,
 	cols := make(map[string]info.ColumnMetadata)
 	for colRows.Next() {
 		var col info.ColumnMetadata
-		err = colRows.Scan(&col.Name, &col.UdtName,
+		err = colRows.Scan(&col.Name, &col.DataType,
 			&col.CharacterMaximumLength, &col.NumericPercision,
-			&col.DateTimePrecision, &col.IsNullable,
-			&col.ColumnDefault, &col.ConstraintType)
+			&col.NumericScale, &col.DateTimePrecision,
+			&col.IsNullable, &col.ConstraintType)
 
 		if err != nil {
 			logging.Global.Error().
@@ -82,15 +81,13 @@ func FindAllTables(db *sql.DB) []info.TableMetadata {
 		}
 
 		if !graph.exists(childTblName.String) {
-			childCols := FindAllColumns(db, childTblName.String,
-				childColName)
+			childCols := FindAllColumns(db, childTblName.String)
 			graph.addNode(childTblName.String, childCols)
 		}
 
 		if parentTblName.Valid {
 			if !graph.exists(parentTblName.String) {
-				parentCols := FindAllColumns(db, parentTblName.String,
-					sql.NullString{String: "", Valid: false})
+				parentCols := FindAllColumns(db, parentTblName.String)
 				graph.addNode(parentTblName.String, parentCols)
 			}
 			if parentTblName.String != childTblName.String {
@@ -153,7 +150,6 @@ func insertTestData(db *sql.DB, d mapper.InsertableData) {
 				Err(err).
 				Str("table_name", d.TableName).
 				Msg("failed to execute insert statement")
-			fmt.Println(query)
 		}
 	}
 }
