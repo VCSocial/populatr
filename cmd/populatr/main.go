@@ -2,13 +2,15 @@ package main
 
 import (
 	"flag"
-
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
-	"github.com/vcsocial/populatr/pkg/common/logging"
-	"github.com/vcsocial/populatr/pkg/generator/dialect"
-	"github.com/vcsocial/populatr/pkg/generator/repo"
+	"populatr/internal/app"
+	"populatr/internal/datasource"
+	"populatr/internal/infra"
+	"populatr/internal/logger"
+	"populatr/internal/pg"
 )
 
 var (
@@ -20,37 +22,57 @@ var (
 	passPtr    *string
 	verbosePtr *bool
 	sslModePtr *bool
+	genLimit   *int
+	lgr        zerolog.Logger
 )
 
 func init() {
-	dbTypePtr = flag.String("type", dialect.PG, "Database Type")
+	dbTypePtr = flag.String("type", datasource.DialectPG, "Database Type")
 	hostPtr = flag.String("host", "localhost", "Host")
-	dbPtr = flag.String("D", "", "Database")
-	portPtr = flag.Int("P", 0, "Port")
-	userPtr = flag.String("u", "", "Username")
-	passPtr = flag.String("p", "", "Password (Do not use with production DBs!)")
-	verbosePtr = flag.Bool("v", false, "Enable verbose output")
+	dbPtr = flag.String("D", "pop", "Database")
+	portPtr = flag.Int("P", 5432, "Port")
+	userPtr = flag.String("u", "puser", "Username")
+	passPtr = flag.String("p", "password", "Password (Do not use with production DBs!)")
+	verbosePtr = flag.Bool("v", true, "Enable verbose output")
 	sslModePtr = flag.Bool("s", false, "Enable sslmode")
+	genLimit = flag.Int("n", 100, "Number of rows to generate")
+}
+
+func parseArgs() *datasource.Connection {
+	flag.Parse()
+
+	if *verbosePtr {
+		logger.EnableVerbose()
+	}
+	lgr = logger.Get()
+	return datasource.NewConnection(
+		datasource.WithDialect(*dbTypePtr),
+		datasource.WithHost(*hostPtr),
+		datasource.WithUsername(*userPtr),
+		datasource.WithPassword(*passPtr),
+		datasource.WithPort(*portPtr),
+		datasource.WithDb(*dbPtr),
+		datasource.WithSsl(*sslModePtr),
+	)
 }
 
 func main() {
-	flag.Parse()
-	dialect.Opts.Configure(*dbTypePtr, *userPtr, *passPtr, *hostPtr, *portPtr,
-		*dbPtr, *sslModePtr)
-
-	if *verbosePtr {
-		logging.Opts.Level = zerolog.DebugLevel
-	}
-	logging.InitLogger()
-
-	db, err := dialect.Connect(*dbTypePtr)
+	conn := parseArgs()
+	mgr := pg.NewManager(*conn)
+	db, err := infa.NewDb(mgr)
 	if err != nil {
-		logging.Global.Fatal().
-			Err(err).
-			Msg("could not connect to db")
+		lgr.Fatal().Err(err).Msg("failed to connect to database")
 	}
-	defer db.Close()
+	defer func(db *sqlx.DB) {
+		err := db.Close()
+		if err != nil {
+			lgr.Fatal().Err(err).Msg("failed properly close database connection")
+		}
+	}(db)
 
-	tables := repo.FindAllTables(db)
-	repo.InsertAllTestData(db, tables)
+	cliApp := app.NewApp(*genLimit, db)
+	err = cliApp.Generate()
+	if err != nil {
+		lgr.Fatal().Err(err).Msg("failed to generate test data")
+	}
 }
